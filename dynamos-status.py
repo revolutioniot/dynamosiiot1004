@@ -230,6 +230,7 @@ def get_services():
         "openclaw_gateway": {"status": check_port("18789"), "port": "18789", "purpose": "OpenClaw AI Gateway"},
         "node_red": {"status": check_port("1880"), "port": "1880", "purpose": "Node-RED Flow Engine"},
         "mqtt_proxy": {"status": check_port("9001"), "port": "9001", "purpose": "MQTT WebSocket Proxy"},
+        "redis": {"status": check_port("6379"), "port": "6379", "purpose": "Redis Cache Server"},
     }
 
 def get_processes():
@@ -403,6 +404,39 @@ ORDER BY d.name"""
         "has_any": mssql is not None or len(other_dbs) > 0
     }
 
+def get_redis():
+    """Check Redis server status"""
+    try:
+        info = run('redis-cli INFO 2>/dev/null')
+        if not info or info == "N/A" or "redis_version" not in info:
+            return {"installed": True, "running": False}
+        
+        parsed = {}
+        for line in info.split("\n"):
+            if ":" in line and not line.startswith("#"):
+                k, v = line.split(":", 1)
+                parsed[k.strip()] = v.strip()
+        
+        return {
+            "installed": True,
+            "running": True,
+            "version": parsed.get("redis_version", "?"),
+            "uptime_seconds": int(parsed.get("uptime_in_seconds", 0)),
+            "connected_clients": int(parsed.get("connected_clients", 0)),
+            "used_memory_human": parsed.get("used_memory_human", "?"),
+            "total_connections": parsed.get("total_connections_received", "?"),
+            "keyspace_hits": int(parsed.get("keyspace_hits", 0)),
+            "keyspace_misses": int(parsed.get("keyspace_misses", 0)),
+            "hit_rate": round(
+                int(parsed.get("keyspace_hits", 0)) / max(
+                    int(parsed.get("keyspace_hits", 0)) + int(parsed.get("keyspace_misses", 0)), 1
+                ) * 100, 1
+            ),
+            "port": 6379
+        }
+    except:
+        return {"installed": True, "running": False}
+
 def get_docker():
     """Docker info if available"""
     try:
@@ -451,6 +485,7 @@ def main():
             "services": get_services(),
             "processes": get_processes(),
             "docker": get_docker(),
+            "redis": get_redis(),
             "databases": get_databases()
         }
         

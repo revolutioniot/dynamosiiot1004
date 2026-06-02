@@ -596,18 +596,60 @@ function render(data) {
     dbEl.innerHTML = '<div class="text-dim" style="font-size:13px;text-align:center;padding:12px;">No databases detected on this host</div>';
   }
 
-  // ── Docker ──
+  // ── Redis ──
+  const redisData = data.redis;
   const dockEl = document.getElementById('dockerContent');
+  
+  // Docker section
+  let dockerHtml = '';
   if (docker && docker.installed) {
-    dockEl.innerHTML = `
+    dockerHtml = `
+      <div style="margin-bottom:12px;"><span style="font-weight:600;font-size:13px;">🐳 Docker</span></div>
       <div class="mini-chart-row">
         <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.containers_running}</div><div class="big-number-label">Running</div></div>
         <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.containers_total}</div><div class="big-number-label">Total</div></div>
         <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.images}</div><div class="big-number-label">Images</div></div>
       </div>`;
   } else {
-    dockEl.innerHTML = '<div class="text-dim" style="font-size:13px;">Docker not installed</div>';
+    dockerHtml = '<div class="text-dim" style="font-size:13px;margin-bottom:12px;">🐳 Docker not installed</div>';
   }
+  
+  // Redis section
+  let redisHtml = '';
+  if (redisData && redisData.installed && redisData.running) {
+    const up = redisData.uptime_seconds || 0;
+    const upDisplay = Math.floor(up / 3600) + 'h ' + Math.floor((up % 3600) / 60) + 'm';
+    redisHtml = `
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">
+        <div style="margin-bottom:8px;"><span style="font-weight:600;font-size:13px;">📦 Redis Cache</span></div>
+        <div class="metric-row">
+          <span class="metric-label">Version</span>
+          <span class="metric-value">${redisData.version || '?'} · port ${redisData.port || 6379}</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Uptime</span>
+          <span class="metric-value">${upDisplay}</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Clients</span>
+          <span class="metric-value">${redisData.connected_clients || 0}</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Memory</span>
+          <span class="metric-value">${redisData.used_memory_human || '?'}</span>
+        </div>
+        <div class="metric-row" style="border-bottom:none;">
+          <span class="metric-label">Cache Hit Rate</span>
+          <span class="metric-value">${redisData.hit_rate || 0}%</span>
+        </div>
+      </div>`;
+  } else if (redisData && redisData.installed) {
+    redisHtml = '<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;"><span class="text-dim">📦 Redis installed but not running</span></div>';
+  } else {
+    redisHtml = '<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;"><span class="text-dim">📦 Redis not installed</span></div>';
+  }
+  
+  dockEl.innerHTML = dockerHtml + redisHtml;
 
   // ── Processes ──
   const procBody = document.getElementById('procBody');
