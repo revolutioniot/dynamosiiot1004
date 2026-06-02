@@ -284,6 +284,125 @@ def get_temperature():
         pass
     return temps
 
+def get_databases():
+    """Check database server status - MSSQL (primary), port checks for others"""
+    db_config_path = "/root/.dynamos-db.json"
+    mssql = None
+    tmp_sql = "/tmp/dynamos-sqlquery.sql"
+    
+    # Try MSSQL via sqlcmd
+    if os.path.exists(db_config_path):
+        try:
+            with open(db_config_path) as f:
+                cfg = json.load(f)
+            ms = cfg.get("mssql", {})
+            if ms.get("password"):
+                pwd = ms["password"]
+                host = ms.get("host", "127.0.0.1")
+                port = ms.get("port", 1433)
+                user = ms.get("user", "sa")
+                
+                # Check if MSSQL is listening
+                port_check = run(f"ss -tlnp 2>/dev/null | grep -qE ':{port} ' && echo 'running' || echo 'stopped'")
+                
+                if port_check == "running":
+                    sqlcmd = f"/opt/mssql-tools/bin/sqlcmd -S {host},{port} -U {user} -P '{pwd}' -W -h-1 -i {tmp_sql}"
+                    
+                    # Write query to temp file and execute
+                    def run_sql(query):
+                        try:
+                            with open(tmp_sql, "w") as f:
+                                f.write(query + "\n")
+                            return run(sqlcmd)
+                        finally:
+                            if os.path.exists(tmp_sql):
+                                os.unlink(tmp_sql)
+                    
+                    # Get version
+                    version_raw = run_sql("SET NOCOUNT ON; SELECT @@VERSION")
+                    version = version_raw.split("\n")[0][:60] if version_raw and version_raw != "N/A" else "SQL Server 2019"
+                    
+                    # Get databases list with sizes
+                    dbs_q = """SET NOCOUNT ON;
+SELECT 
+    d.name,
+    CONVERT(VARCHAR(10), CONVERT(DECIMAL(10,1), m.size * 8.0 / 1024)) + ' MB',
+    d.state_desc
+FROM sys.master_files m
+JOIN sys.databases d ON d.database_id = m.database_id
+WHERE m.type = 0
+ORDER BY d.name"""
+                    dbs_raw = run_sql(dbs_q)
+                    
+                    databases = []
+                    for line in dbs_raw.strip().split("\n"):
+                        line = line.strip()
+                        if not line or line.startswith("-") or line.startswith("(") or "affected" in line:
+                            continue
+                        # Split on multiple spaces
+                        parts = [p for p in line.split() if p]
+                        if len(parts) >= 4:
+                            db_name = parts[0]
+                            size_str = parts[1] + " " + parts[2]
+                            state = parts[3]
+                            databases.append({
+                                "name": db_name,
+                                "size": size_str if size_str != "- MB" else "-",
+                                "state": state
+                            })
+                    
+                    # Get uptime
+                    uptime_raw = run_sql("SET NOCOUNT ON; SELECT CONVERT(VARCHAR(10), DATEDIFF(DAY, sqlserver_start_time, GETDATE())) + ' days' FROM sys.dm_os_sys_info")
+                    lines = [l.strip() for l in uptime_raw.split("\n") if l.strip() and not l.startswith("-") and "affected" not in l]
+                    uptime = lines[0] if lines else "-"
+                    
+                    # Get active connections
+                    conn_raw = run_sql("SET NOCOUNT ON; SELECT CONVERT(VARCHAR(5), COUNT(*)) FROM sys.dm_exec_connections")
+                    lines = [l.strip() for l in conn_raw.split("\n") if l.strip() and not l.startswith("-") and "affected" not in l]
+                    connections = lines[0] if lines else "-"
+                    
+                    mssql = {
+                        "status": "running",
+                        "version": version,
+                        "port": port,
+                        "uptime": uptime,
+                        "connections": connections,
+                        "databases": databases
+                    }
+        except Exception as e:
+            mssql = {"status": "error", "error": str(e)}
+        finally:
+            if os.path.exists(tmp_sql):
+                try:
+                    os.unlink(tmp_sql)
+                except:
+                    pass
+    
+    # Check for other database ports
+    other_dbs = []
+    db_ports = {
+        3306: {"name": "MySQL/MariaDB", "type": "mysql"},
+        5432: {"name": "PostgreSQL", "type": "postgresql"},
+        6379: {"name": "Redis", "type": "redis"},
+        27017: {"name": "MongoDB", "type": "mongodb"},
+        8086: {"name": "InfluxDB", "type": "influxdb"},
+    }
+    for dport, info in db_ports.items():
+        s = run(f"ss -tlnp 2>/dev/null | grep -qE ':{dport} ' && echo 'running' || echo 'stopped'")
+        if s == "running":
+            other_dbs.append({
+                "name": info["name"],
+                "port": dport,
+                "type": info["type"],
+                "status": "running"
+            })
+    
+    return {
+        "mssql": mssql,
+        "others": other_dbs if other_dbs else None,
+        "has_any": mssql is not None or len(other_dbs) > 0
+    }
+
 def get_docker():
     """Docker info if available"""
     try:
@@ -331,7 +450,8 @@ def main():
             "network": get_network(),
             "services": get_services(),
             "processes": get_processes(),
-            "docker": get_docker()
+            "docker": get_docker(),
+            "databases": get_databases()
         }
         
         os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)

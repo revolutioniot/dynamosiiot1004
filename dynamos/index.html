@@ -375,6 +375,17 @@
     </div>
   </div>
 
+  <!-- Database Card (wide) -->
+  <div class="card grid-wide">
+    <div class="card-header"><span>🗄️ Databases</span> <span id="dbServerInfo" style="font-size:11px;font-weight:400;"></span></div>
+    <div id="dbContent">
+      <div class="skeleton h2"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>
+  </div>
+
   <!-- Top Processes (full width) -->
   <div class="card grid-full">
     <div class="card-header"><span>📊 Top Processes</span></div>
@@ -517,6 +528,72 @@ function render(data) {
         </div>
       </div>`;
     }).join('');
+  }
+
+  // ── Databases ──
+  const dbData = data.databases;
+  const dbEl = document.getElementById('dbContent');
+  const dbInfo = document.getElementById('dbServerInfo');
+  if (dbData && dbData.has_any) {
+    const ms = dbData.mssql;
+    if (ms && ms.status === 'running') {
+      const versionShort = (ms.version || '').replace(/Microsoft SQL Server /g, 'MSSQL ').split('(')[0].trim();
+      dbInfo.textContent = versionShort + ' · up ' + ms.uptime + ' · ' + ms.connections + ' conns';
+      
+      let html = `<div class="metric-row">
+        <span class="metric-label">Version</span>
+        <span class="metric-value">${versionShort}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Uptime</span>
+        <span class="metric-value">${ms.uptime || '—'}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Active Connections</span>
+        <span class="metric-value">${ms.connections || '—'}</span>
+      </div>
+      <div class="metric-row" style="border-bottom:none;">
+        <span class="metric-label">Databases</span>
+        <span class="metric-value">${(ms.databases || []).length}</span>
+      </div>`;
+      
+      // Database list
+      if (ms.databases && ms.databases.length > 0) {
+        html += '<div style="margin-top:10px;"><div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Databases:</div>';
+        ms.databases.forEach(db => {
+          const bg = db.state === 'ONLINE' ? 'var(--green)' : 'var(--red)';
+          html += `<div class="service-row">
+            <div class="service-info">
+              <span class="service-name">${db.name}</span>
+              <span class="service-desc"><span class="service-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${bg};margin-right:4px;vertical-align:middle;"></span>${db.state}</span>
+            </div>
+            <span style="font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;">${db.size}</span>
+          </div>`;
+        });
+        html += '</div>';
+      }
+      
+      dbEl.innerHTML = html;
+    } else if (ms && ms.status === 'error') {
+      dbInfo.textContent = '';
+      dbEl.innerHTML = '<div class="metric-row"><span class="metric-label">Error</span><span class="metric-value text-red">' + (ms.error || 'Unknown') + '</span></div>';
+    }
+    
+    // Other DBs detected
+    if (dbData.others && dbData.others.length > 0) {
+      const otherHtml = dbData.others.map(o => 
+        `<div class="service-row">
+          <span class="service-name">${o.name}</span>
+          <span class="service-status"><span class="service-dot dot-running"></span> Port ${o.port}</span>
+        </div>`
+      ).join('');
+      // Append or merge
+      const existing = dbEl.innerHTML;
+      dbEl.innerHTML = existing + '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Also detected:</div>' + otherHtml + '</div>';
+    }
+  } else {
+    dbInfo.textContent = '';
+    dbEl.innerHTML = '<div class="text-dim" style="font-size:13px;text-align:center;padding:12px;">No databases detected on this host</div>';
   }
 
   // ── Docker ──
