@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamos · Server Status</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔮</text></svg>">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --surface: #131820;
+    --card: #1a1f2e;
+    --border: #262d3d;
+    --text: #e2e8f0;
+    --text-dim: #7c8798;
+    --accent: #60a5fa;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+    --radius: 12px;
+    --gap: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: var(--gap);
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .header-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .header h1 {
+    font-size: 22px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header-sub {
+    font-size: 13px; color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .header-right {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 13px; color: var(--text-dim);
+  }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block;
+    background: var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .status-dot.stale { background: var(--yellow); }
+  .status-dot.error { background: var(--red); }
+
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--gap);
+    margin-bottom: var(--gap);
+  }
+  .grid-full { grid-column: 1 / -1; }
+  .grid-wide { grid-column: span 2; }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim);
+  }
+  .card-header .icon { font-size: 16px; }
+
+  /* Metric rows */
+  .metric-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .metric-row:last-child { border-bottom: none; }
+  .metric-label { font-size: 13px; color: var(--text-dim); }
+  .metric-value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* Big number */
+  .big-number {
+    font-size: 36px; font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .big-number-label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Progress bar */
+  .progress { margin: 8px 0; }
+  .progress-bar {
+    height: 8px; border-radius: 4px; background: var(--card);
+    overflow: hidden; margin-top: 4px;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+  .progress-labels {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim); margin-top: 4px;
+  }
+
+  /* Bar colors */
+  .bar-green { background: var(--green); }
+  .bar-yellow { background: var(--yellow); }
+  .bar-orange { background: var(--orange); }
+  .bar-red { background: var(--red); }
+  .bar-accent { background: var(--accent); }
+  .bar-purple { background: var(--accent2); }
+  .bar-cyan { background: var(--cyan); }
+
+  /* Service row */
+  .service-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .service-row:last-child { border-bottom: none; }
+  .service-info { display: flex; flex-direction: column; gap: 2px; }
+  .service-name { font-size: 14px; font-weight: 500; }
+  .service-desc { font-size: 11px; color: var(--text-dim); }
+  .service-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500;
+  }
+  .service-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .dot-running { background: var(--green); }
+  .dot-stopped { background: var(--red); }
+
+  /* Process table */
+  .proc-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .proc-table th {
+    text-align: left; padding: 6px 8px;
+    color: var(--text-dim); font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+  .proc-table td {
+    padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-variant-numeric: tabular-nums;
+  }
+  .proc-table tr:hover td { background: rgba(255,255,255,0.03); }
+  .cmd-cell { font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Mini chart row */
+  .mini-chart-row {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin: 10px 0;
+  }
+  .mini-chart-item { flex: 1; min-width: 80px; }
+
+  /* Network iface */
+  .iface-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+  }
+  .iface-name { font-size: 13px; font-weight: 500; }
+  .iface-traffic { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    .grid { grid-template-columns: 1fr; }
+    .grid-wide { grid-column: span 1; }
+    .header { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .header-right { width: 100%; justify-content: flex-start; }
+    .proc-table { font-size: 10px; }
+    .cmd-cell { max-width: 120px; }
+  }
+
+  /* Last updated */
+  .last-updated {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 20px 0 10px;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    background: linear-gradient(90deg, var(--card) 25%, var(--border) 50%, var(--card) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    height: 14px;
+    margin: 6px 0;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton.h2 { height: 24px; width: 60%; }
+  .skeleton.h3 { height: 18px; width: 40%; }
+
+  /* Error state */
+  .error-state {
+    text-align: center; padding: 40px 20px;
+    color: var(--text-dim);
+  }
+  .error-state .emoji { font-size: 48px; margin-bottom: 12px; }
+
+  /* Extra colors for gauges */
+  .text-green { color: var(--green); }
+  .text-yellow { color: var(--yellow); }
+  .text-red { color: var(--red); }
+  .text-orange { color: var(--orange); }
+  .text-accent { color: var(--accent); }
+  .text-dim { color: var(--text-dim); }
+
+  .temp-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .temp-chip {
+    background: var(--card); padding: 6px 12px; border-radius: 6px;
+    font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .temp-chip .temp-val { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-icon">⚡</div>
+    <div>
+      <h1>Dynamos</h1>
+      <div class="header-sub">Server Status · <span id="hostname">—</span></div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="status-dot" id="liveDot"></span>
+    <span id="lastUpdate">Connecting…</span>
+    <span>·</span>
+    <span id="refreshCountdown">—</span>
+  </div>
+</div>
+
+<div class="grid" id="app">
+  <!-- CPU Card -->
+  <div class="card">
+    <div class="card-header"><span>🧠 CPU</span></div>
+    <div class="big-number" id="cpuPercent">—</div>
+    <div class="big-number-label">Usage %</div>
+    <div class="progress">
+      <div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width:0%"></div></div>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Cores</span>
+      <span class="metric-value" id="cpuCores">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Load (1/5/15m)</span>
+      <span class="metric-value" id="cpuLoad">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Temperature</span>
+      <span class="metric-value" id="cpuTemp">—</span>
+    </div>
+  </div>
+
+  <!-- Memory Card -->
+  <div class="card">
+    <div class="card-header"><span>💾 Memory</span></div>
+    <div class="big-number" id="memPercent">—</div>
+    <div class="big-number-label">Used</div>
+    <div class="progress">
+      <div class="progress-bar"><div class="progress-fill" id="memBar" style="width:0%"></div></div>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Used / Total</span>
+      <span class="metric-value" id="memUsed">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Available</span>
+      <span class="metric-value" id="memAvail">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Swap</span>
+      <span class="metric-value" id="memSwap">—</span>
+    </div>
+  </div>
+
+  <!-- Disk Card -->
+  <div class="card">
+    <div class="card-header"><span>💿 Disk</span></div>
+    <div id="diskContent">
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>
+  </div>
+
+  <!-- Uptime Card -->
+  <div class="card">
+    <div class="card-header"><span>⏱️ Uptime</span></div>
+    <div class="big-number" id="uptime">—</div>
+    <div class="big-number-label">Since last restart</div>
+    <div class="metric-row">
+      <span class="metric-label">Kernel</span>
+      <span class="metric-value" id="kernel">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Platform</span>
+      <span class="metric-value" id="platform">—</span>
+    </div>
+  </div>
+
+  <!-- Network Card (wide) -->
+  <div class="card grid-wide">
+    <div class="card-header"><span>🌐 Network</span></div>
+    <div class="metric-row">
+      <span class="metric-label">Hostname</span>
+      <span class="metric-value" id="netHostname">—</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">IP Addresses</span>
+      <span class="metric-value" id="netIPs" style="font-size:12px;">—</span>
+    </div>
+    <div class="metric-row" style="border-bottom:none;">
+      <span class="metric-label">TCP Connections</span>
+      <span class="metric-value" id="netConns">—</span>
+    </div>
+    <div style="margin-top:10px;">
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">Interface Traffic</div>
+      <div id="ifaceList"></div>
+    </div>
+  </div>
+
+  <!-- Services Card -->
+  <div class="card">
+    <div class="card-header"><span>⚙️ Services</span></div>
+    <div id="serviceList">
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+    </div>
+  </div>
+
+  <!-- Docker Card -->
+  <div class="card">
+    <div class="card-header"><span>🐳 Docker</span></div>
+    <div id="dockerContent">
+      <div class="skeleton"></div>
+    </div>
+  </div>
+
+  <!-- Top Processes (full width) -->
+  <div class="card grid-full">
+    <div class="card-header"><span>📊 Top Processes</span></div>
+    <div style="overflow-x:auto;">
+      <table class="proc-table">
+        <thead><tr><th>User</th><th>CPU%</th><th>MEM%</th><th>Command</th></tr></thead>
+        <tbody id="procBody">
+          <tr><td colspan="4"><div class="skeleton"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="last-updated">
+  <span id="footerUpdate">Waiting for data…</span>
+</div>
+
+<script>
+// ── Color helpers ──
+function pctColor(p) {
+  if (p < 50) return 'bar-green';
+  if (p < 75) return 'bar-yellow';
+  if (p < 90) return 'bar-orange';
+  return 'bar-red';
+}
+function pctTextColor(p) {
+  if (p < 50) return 'text-green';
+  if (p < 75) return 'text-yellow';
+  if (p < 90) return 'text-orange';
+  return 'text-red';
+}
+
+// ── Format helpers ──
+function fmtBytes(kb) { return kb; } // already in GB from API
+
+// ── Render dashboard ──
+function render(data) {
+  if (!data || data.error) {
+    document.querySelectorAll('.big-number').forEach(e => e.textContent = '⚠');
+    document.getElementById('lastUpdate').textContent = 'Error fetching data';
+    document.getElementById('liveDot').className = 'status-dot error';
+    return;
+  }
+
+  const st = data.system;
+  const cpu = data.cpu;
+  const mem = data.memory;
+  const disk = data.disk;
+  const net = data.network;
+  const svc = data.services;
+  const procs = data.processes;
+  const docker = data.docker;
+
+  // Hostname
+  document.getElementById('hostname').textContent = st.hostname || '—';
+
+  // ── CPU ──
+  const cpuPct = cpu.percent || 0;
+  document.getElementById('cpuPercent').textContent = cpuPct.toFixed(1) + '%';
+  document.getElementById('cpuPercent').className = 'big-number ' + pctTextColor(cpuPct);
+  document.getElementById('cpuBar').style.width = cpuPct + '%';
+  document.getElementById('cpuBar').className = 'progress-fill ' + pctColor(cpuPct);
+  document.getElementById('cpuCores').textContent = cpu.cores || '—';
+
+  const ld = cpu.load;
+  document.getElementById('cpuLoad').textContent = ld ? [ld['1min'], ld['5min'], ld['15min']].join(' / ') : '—';
+
+  // Temperature
+  const temps = cpu.temperature || [];
+  if (temps.length > 0) {
+    const avg = temps.reduce((s, t) => s + t.temp_c, 0) / temps.length;
+    document.getElementById('cpuTemp').innerHTML = `<span style="color:${avg > 70 ? 'var(--orange)' : 'var(--text)'}">${avg.toFixed(1)}°C</span>`;
+  } else {
+    document.getElementById('cpuTemp').textContent = 'N/A';
+  }
+
+  // ── Memory ──
+  const memPct = mem.percent_used || 0;
+  document.getElementById('memPercent').textContent = memPct.toFixed(1) + '%';
+  document.getElementById('memPercent').className = 'big-number ' + pctTextColor(memPct);
+  document.getElementById('memBar').style.width = memPct + '%';
+  document.getElementById('memBar').className = 'progress-fill ' + pctColor(memPct);
+  document.getElementById('memUsed').textContent = mem.used_gb + 'G / ' + mem.total_gb + 'G';
+  document.getElementById('memAvail').textContent = mem.available_gb + 'G';
+  const swapText = mem.swap_total_gb > 0 ? (mem.swap_used_gb + 'G / ' + mem.swap_total_gb + 'G') : 'No swap';
+  document.getElementById('memSwap').textContent = swapText;
+
+  // ── Disk ──
+  const diskEl = document.getElementById('diskContent');
+  if (disk && disk.length > 0) {
+    diskEl.innerHTML = disk.map(d => {
+      const pct = d.percent_used || 0;
+      return `<div class="metric-row"><span class="metric-label">${d.mount}</span><span class="metric-value">${d.used_gb}G / ${d.total_gb}G</span></div>
+      <div class="progress"><div class="progress-bar"><div class="progress-fill ${pctColor(pct)}" style="width:${pct}%"></div></div>
+      <div class="progress-labels"><span>${pct}% used</span><span>${d.available_gb}G free</span></div></div>`;
+    }).join('');
+  } else {
+    diskEl.innerHTML = '<div class="metric-row"><span class="metric-label">N/A</span></div>';
+  }
+
+  // ── Uptime ──
+  const up = st.uptime || {};
+  document.getElementById('uptime').textContent = up.display || '—';
+  document.getElementById('kernel').textContent = st.kernel || '—';
+  document.getElementById('platform').textContent = (st.platform || '').split('#')[0].trim() || '—';
+
+  // ── Network ──
+  document.getElementById('netHostname').textContent = net.hostname || st.hostname || '—';
+  document.getElementById('netIPs').textContent = (net.ips || []).join(', ') || '—';
+  document.getElementById('netConns').textContent = net.tcp_established || '—';
+
+  const ifaceEl = document.getElementById('ifaceList');
+  if (net.interfaces && net.interfaces.length > 0) {
+    ifaceEl.innerHTML = net.interfaces.map(iface => {
+      return `<div class="iface-row">
+        <span class="iface-name">${iface.name}</span>
+        <span class="iface-traffic">⬇ ${iface.rx_gb}G · ⬆ ${iface.tx_gb}G</span>
+      </div>`;
+    }).join('');
+  } else {
+    ifaceEl.innerHTML = '<div class="text-dim" style="font-size:12px;">No interface data</div>';
+  }
+
+  // ── Services ──
+  const svcEl = document.getElementById('serviceList');
+  if (svc) {
+    const svcNames = Object.keys(svc);
+    svcEl.innerHTML = svcNames.map(name => {
+      const s = svc[name];
+      const isRunning = s.status === 'running' || s.status === 'active';
+      return `<div class="service-row">
+        <div class="service-info">
+          <span class="service-name">${name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+          <span class="service-desc">${s.purpose || ('Port ' + s.port)}</span>
+        </div>
+        <div class="service-status">
+          <span class="service-dot ${isRunning ? 'dot-running' : 'dot-stopped'}"></span>
+          ${isRunning ? 'Running' : 'Stopped'}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Docker ──
+  const dockEl = document.getElementById('dockerContent');
+  if (docker && docker.installed) {
+    dockEl.innerHTML = `
+      <div class="mini-chart-row">
+        <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.containers_running}</div><div class="big-number-label">Running</div></div>
+        <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.containers_total}</div><div class="big-number-label">Total</div></div>
+        <div class="mini-chart-item"><div class="big-number" style="font-size:28px;">${docker.images}</div><div class="big-number-label">Images</div></div>
+      </div>`;
+  } else {
+    dockEl.innerHTML = '<div class="text-dim" style="font-size:13px;">Docker not installed</div>';
+  }
+
+  // ── Processes ──
+  const procBody = document.getElementById('procBody');
+  if (procs && procs.length > 0) {
+    procBody.innerHTML = procs.map(p => {
+      const cpuV = parseFloat(p.cpu) || 0;
+      const memV = parseFloat(p.mem) || 0;
+      return `<tr>
+        <td>${p.user}</td>
+        <td class="${pctTextColor(cpuV)}">${p.cpu}%</td>
+        <td>${p.mem}%</td>
+        <td class="cmd-cell" title="${p.cmd}">${p.cmd}</td>
+      </tr>`;
+    }).join('');
+  } else {
+    procBody.innerHTML = '<tr><td colspan="4" class="text-dim" style="text-align:center;padding:12px;">No process data</td></tr>';
+  }
+
+  // ── Timestamp ──
+  const ts = data.timestamp || Math.floor(Date.now() / 1000);
+  const d = new Date(ts * 1000);
+  const timeStr = d.toLocaleString();
+  document.getElementById('lastUpdate').textContent = timeStr;
+  document.getElementById('footerUpdate').textContent = 'Last updated: ' + timeStr;
+  document.getElementById('liveDot').className = 'status-dot';
+}
+
+// ── Fetch data ──
+let countdown = 0;
+const REFRESH_INTERVAL = 10; // seconds
+
+async function fetchStatus() {
+  try {
+    const r = await fetch('status.json?_=' + Date.now());
+    const data = await r.json();
+    render(data);
+  } catch (e) {
+    document.getElementById('lastUpdate').textContent = 'Fetch error';
+    document.getElementById('liveDot').className = 'status-dot error';
+  }
+}
+
+function tick() {
+  countdown--;
+  if (countdown <= 0) {
+    countdown = REFRESH_INTERVAL;
+    fetchStatus();
+  }
+  document.getElementById('refreshCountdown').textContent = countdown + 's';
+}
+
+// ── Boot ──
+fetchStatus();
+countdown = REFRESH_INTERVAL;
+setInterval(tick, 1000);
+</script>
+
+</body>
+</html>
